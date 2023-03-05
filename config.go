@@ -127,7 +127,7 @@ func (c *config) reload() error {
 	return nil
 }
 
-func (c config) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (c *config) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	for _, s := range c.ServerConfigs {

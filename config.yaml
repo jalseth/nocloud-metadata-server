@@ -1,0 +1,29 @@
+userDataTemplates:
+  basic:
+    package_upgrade: true
+    ssh_pwauth: false
+
+serverConfigs:
+- name: "basic-dev"
+  matchPatterns:
+  - "dev"
+  instanceConfig:
+    hostname: "basic-dev"
+    enableInstanceIDSuffix: true
+    enableHostnameSuffix: true
+  userDataTemplate: "basic"
+  replacements:
+    ssh_authorized_keys:
+    - ssh-rsa dev-management-ssh-key...
+
+- name: "basic-prod"
+  matchPatterns:
+  - "prod"
+  instanceConfig:
+    hostname: "basic-prod"
+    enableInstanceIDSuffix: true
+    enableHostnameSuffix: true
+  userDataTemplate: "basic"
+  replacements:
+    ssh_authorized_keys:
+    - ssh-rsa prod-management-ssh-key...
