@@ -1,0 +1,19 @@
+before:
+  hooks:
+  - go mod download
+
+builds:
+- main: "."
+  env:
+  - CGO_ENABLED=0
+  goos:
+  - linux
+  goarch:
+  - amd64
+  - arm64
+  ldflags:
+  - "-s"
+  - "-w"
+
+checksum:
+  name_template: 'checksums.txt'
