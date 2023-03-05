@@ -53,6 +53,7 @@ const (
 	defaultListenAddress = "0.0.0.0"
 	defaultListenPort    = 8000
 	defaultSuffixLength  = 4
+	yamlHeader           = "#cloud-config\n"
 )
 
 func loadConfig(path string) (*config, error) {
@@ -93,7 +94,7 @@ func (c *config) validate() error {
 			if err != nil {
 				return fmt.Errorf("render user data after replacements: %w", err)
 			}
-			sc.renderedUserData = by
+			sc.renderedUserData = append([]byte(yamlHeader), by...)
 		}
 	}
 	if c.ListenAddress == "" {
@@ -207,7 +208,11 @@ func (c *instanceConfig) RenderMetaData(serial string) ([]byte, error) {
 	if c.EnableInstanceIDSuffix {
 		md.InstanceID += suffix
 	}
-	return yaml.Marshal(md)
+	by, err := yaml.Marshal(md)
+	if err != nil {
+		return nil, fmt.Errorf("render YAML: %w", err)
+	}
+	return append([]byte(yamlHeader), by...), nil
 }
 
 func genSuffix(n int) (string, error) {
