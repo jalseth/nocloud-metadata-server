@@ -9,6 +9,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/knadh/koanf/maps"
 	yaml "gopkg.in/yaml.v3"
@@ -19,6 +20,9 @@ type config struct {
 	ListenAddress     string                    `yaml:"listenAddress"`
 	ServerConfigs     []*serverConfig           `yaml:"serverConfigs"`
 	UserDataTemplates map[string]map[string]any `yaml:"userDataTemplates"`
+
+	configPath string
+	mu         sync.RWMutex
 }
 
 type serverConfig struct {
@@ -52,56 +56,83 @@ const (
 )
 
 func loadConfig(path string) (*config, error) {
-	by, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read config: %w", err)
+	cfg := &config{configPath: path}
+	if err := cfg.reload(); err != nil {
+		return nil, err
 	}
-	var cfg config
-	if err := yaml.Unmarshal(by, &cfg); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
+
+	return cfg, nil
+}
+
+func (c *config) validate() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.ServerConfigs) == 0 {
+		return fmt.Errorf("config file %q has no serving configurations", c.configPath)
 	}
-	if len(cfg.ServerConfigs) == 0 {
-		return nil, fmt.Errorf("config file %q has no serving configurations", path)
-	}
-	for _, c := range cfg.ServerConfigs {
-		if err := c.loadMatchers(); err != nil {
-			return nil, fmt.Errorf("config %q has invalid matchers: %w", c.Name, err)
+	for _, sc := range c.ServerConfigs {
+		if err := sc.loadMatchers(); err != nil {
+			return fmt.Errorf("config %q has invalid matchers: %w", sc.Name, err)
 		}
-		if c.InstanceConfig == nil {
-			return nil, fmt.Errorf("config %q does not have an instanceConfig set", c.Name)
+		if sc.InstanceConfig == nil {
+			return fmt.Errorf("config %q does not have an instanceConfig set", sc.Name)
 		}
-		if err := c.InstanceConfig.validate(); err != nil {
-			return nil, fmt.Errorf("invalid instance config: %w", err)
+		if err := sc.InstanceConfig.validate(); err != nil {
+			return fmt.Errorf("invalid instance config: %w", err)
 		}
-		if c.UserDataTemplate == "" && len(c.Replacements) > 0 {
-			return nil, fmt.Errorf("replacers can only be configured when referencing a user data template")
+		if sc.UserDataTemplate == "" && len(sc.Replacements) > 0 {
+			return fmt.Errorf("replacers can only be configured when referencing a user data template")
 		}
-		userData, ok := cfg.UserDataTemplates[c.UserDataTemplate]
+		userData, ok := c.UserDataTemplates[sc.UserDataTemplate]
 		if ok {
 			clone := maps.Copy(userData)
-			if len(c.Replacements) > 0 {
-				maps.Merge(c.Replacements, clone)
+			if len(sc.Replacements) > 0 {
+				maps.Merge(sc.Replacements, clone)
 			}
 			by, err := yaml.Marshal(clone)
 			if err != nil {
-				return nil, fmt.Errorf("render user data after replacements: %w", err)
+				return fmt.Errorf("render user data after replacements: %w", err)
 			}
-			c.renderedUserData = by
+			sc.renderedUserData = by
 		}
 	}
-	if cfg.ListenAddress == "" {
-		cfg.ListenAddress = defaultListenAddress
+	if c.ListenAddress == "" {
+		c.ListenAddress = defaultListenAddress
 	}
-	if cfg.ListenPort == 0 {
-		cfg.ListenPort = defaultListenPort
+	if c.ListenPort == 0 {
+		c.ListenPort = defaultListenPort
 	}
-	return &cfg, nil
+	return nil
+}
+
+func (c *config) reload() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	by, err := os.ReadFile(c.configPath)
+	if err != nil {
+		return fmt.Errorf("read config: %w", err)
+	}
+	var cfg config
+	if err := yaml.Unmarshal(by, &cfg); err != nil {
+		return fmt.Errorf("parse config: %w", err)
+	}
+	if err := cfg.validate(); err != nil {
+		return fmt.Errorf("validate config: %w", err)
+	}
+	c.UserDataTemplates = cfg.UserDataTemplates
+	c.ServerConfigs = cfg.ServerConfigs
+	c.ListenAddress = cfg.ListenAddress
+	c.ListenPort = cfg.ListenPort
+
+	return nil
 }
 
 func (c config) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	for _, s := range c.ServerConfigs {
 		if s.Match(r.URL.Path) {
-			log.Printf("%s: matched by %s", r.URL.Path, s.Name)
+			log.Printf("%s: returning config %q for: %s", r.RemoteAddr, s.Name, r.URL.Path)
 			s.ServeHTTP(w, r)
 			return
 		}
