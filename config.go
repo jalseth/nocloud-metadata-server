@@ -138,6 +138,7 @@ func (c *config) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	log.Printf("WARN: %s: no config found for: %s", r.RemoteAddr, r.URL.Path)
 	http.NotFound(w, r)
 }
 
@@ -180,6 +181,7 @@ func (c serverConfig) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "vendor-data":
 		break
 	default:
+		log.Printf("WARN: %s: invalid request path: %s", r.RemoteAddr, r.URL.Path)
 		http.NotFound(w, r)
 	}
 }
