@@ -10,8 +10,6 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
-	"github.com/fsnotify/fsnotify"
 )
 
 var (
@@ -23,39 +21,20 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer watcher.Close()
 
-	go func() {
-		for {
-			select {
-			case event, more := <-watcher.Events:
-				if !more {
-					return
-				}
-				if event.Has(fsnotify.Write) {
-					log.Print("Config file modified, reloading")
-					if err := cfg.reload(); err != nil {
-						log.Fatalf("Failed to reload updated config: %v", err)
-					}
-				}
-			case err, more := <-watcher.Errors:
-				if !more {
-					return
-				}
-				log.Printf("WARN: Config watcher encountered an error: %v", err)
+	reload := make(chan os.Signal, 1)
+	go func(sigs chan os.Signal) {
+		for range sigs {
+			log.Print("Config file modified, reloading")
+			if err := cfg.reload(); err != nil {
+				log.Fatalf("Failed to reload updated config: %v", err)
 			}
 		}
-	}()
-	if err := watcher.Add(*configFilePath); err != nil {
-		log.Fatal(err)
-	}
+	}(reload)
+	signal.Notify(reload, syscall.SIGHUP)
 
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	exit := make(chan os.Signal, 1)
+	signal.Notify(exit, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	addr := fmt.Sprintf("%s:%d", cfg.ListenAddress, cfg.ListenPort)
 	srv := &http.Server{
@@ -69,8 +48,7 @@ func main() {
 	}()
 	log.Printf("Listening on %s", addr)
 
-	<-sig
-	close(watcher.Events)
+	<-exit
 	log.Print("SIGTERM received, shutting down")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
