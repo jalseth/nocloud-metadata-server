@@ -97,12 +97,7 @@ func (c *config) validate() error {
 			sc.renderedUserData = append([]byte(yamlHeader), by...)
 		}
 	}
-	if c.ListenAddress == "" {
-		c.ListenAddress = defaultListenAddress
-	}
-	if c.ListenPort == 0 {
-		c.ListenPort = defaultListenPort
-	}
+
 	return nil
 }
 
@@ -119,6 +114,12 @@ func (c *config) reload() error {
 	}
 	if err := cfg.validate(); err != nil {
 		return fmt.Errorf("validate config: %w", err)
+	}
+	if cfg.ListenAddress == "" {
+		cfg.ListenAddress = defaultListenAddress
+	}
+	if cfg.ListenPort == 0 {
+		cfg.ListenPort = defaultListenPort
 	}
 	c.UserDataTemplates = cfg.UserDataTemplates
 	c.ServerConfigs = cfg.ServerConfigs
