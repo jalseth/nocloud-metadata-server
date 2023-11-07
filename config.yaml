@@ -3,6 +3,7 @@ userDataTemplates:
     package_upgrade: true
     ssh_pwauth: false
 
+serverConfigPath: "serverConfigs"
 serverConfigs:
 - name: "basic-dev"
   matchPatterns:
