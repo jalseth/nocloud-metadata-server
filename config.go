@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ type config struct {
 	ListenPort        int                       `yaml:"listenPort"`
 	ListenAddress     string                    `yaml:"listenAddress"`
 	ServerConfigs     []*serverConfig           `yaml:"serverConfigs"`
+	ServerConfigPath  string                    `yaml:"serverConfigPath"`
 	UserDataTemplates map[string]map[string]any `yaml:"userDataTemplates"`
 
 	configPath string
@@ -112,6 +114,31 @@ func (c *config) reload() error {
 	if err := yaml.Unmarshal(by, &cfg); err != nil {
 		return fmt.Errorf("parse config: %w", err)
 	}
+	// if serverConfigPath is defined we also read all y(a)ml files from that directory into the serviceConfigs
+	if cfg.ServerConfigPath != "" {
+		files, err := os.ReadDir(cfg.ServerConfigPath)
+		if err != nil {
+			log.Printf("WARN: configured ServerConfigPath \"%s\" couldn't be loaded", cfg.ServerConfigPath)
+		} else {
+			for _, file := range files {
+				if !file.IsDir() && (strings.Contains(file.Name(), "yaml") || strings.Contains(file.Name(), "yml")) {
+
+					//serverConfig := &serverConfig{serverConfigPath, file}
+					by, err := os.ReadFile(filepath.Join(cfg.ServerConfigPath, file.Name()))
+					if err != nil {
+						return fmt.Errorf("read serverConfig: %w", err)
+					}
+					var serverConfig serverConfig
+					if err := yaml.Unmarshal(by, &serverConfig); err != nil {
+						return fmt.Errorf("parse serverConfig: %w", err)
+					}
+					cfg.ServerConfigs = append(cfg.ServerConfigs, &serverConfig)
+				}
+
+			}
+		}
+
+	}
 	if err := cfg.validate(); err != nil {
 		return fmt.Errorf("validate config: %w", err)
 	}
@@ -146,7 +173,8 @@ func (c *config) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (c *serverConfig) loadMatchers() error {
 	if len(c.MatchPatterns) == 0 {
-		return fmt.Errorf("no matchers specified")
+		log.Printf("INFO:  No matcher configured, fallback to name for %s", c.Name)
+		c.MatchPatterns = append(c.MatchPatterns, c.Name)
 	}
 	for _, m := range c.MatchPatterns {
 		re, err := regexp.Compile(m)
